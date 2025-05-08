@@ -1,48 +1,53 @@
-//******************************************************************************
-//  MSP430FR235x Demo - SAC-L3, DAC Buffer Mode
-//
-//  Description: Configure SAC-L3 for DAC Buffer Mode. Use the 12 bit DAC to
-//  output positive ramp. The OA is set in buffer mode to improve DAC output
-//  drive strength. Internal 2.5V reference is selected as DAC reference.
-//  Observe the output of OA0O pin with oscilloscope.
-//  ACLK = n/a, MCLK = SMCLK = default DCODIV ~1MHz.
-//
-//  configurare buton P2.1
-//  selectie tip semnal: sinus/dintefierastrau/rampa
-//  configurare buton P2.2
-//  selectie canal SAC_DAC_x pentru care sa modificam defajajul
-//  configurare buton P2.3
-//  incrementarea defazajului fata de SAC_DAC_0
-//  configurare buton P2.4
-//  decrementarea defazajului fata de SAC_DAC_0
-//
-//                              MSP430FR2355
-//             -----------------------------------------
-//         /|\|                                          |
-//          | |                                          |
-//          --|RST                      P1.1->DAC12->OA0O|--> P1.1 Canal 0 Output
-//            |                         P1.5->DAC12->OA1O|--> P1.5 Canal 1 Output
-//            |                         P3.3->DAC12->OA2O|--> P3.3 Canal 2 Output
-//            |                         P3.5->DAC12->OA3O|--> P3.5 Canal 3 Output
-//          --|<-P2.1 - Tip Semnal                       |
-//          --|<-P2.2 - Selectam Canal DAC               |
-//          --|<-P2.3 - Incrementam Defazajul pentru DAC |
-//          --|<-P2.4 - Incrementam Defazajul pentru DAC |
-//          --|<-P4.1 - Selectam Frecventa pentru Output |
-//            |                                          |
-//
-//******************************************************************************
-//Se doreste frecventa generata = 20KHz
-//
 #include <msp430.h>
 #include <stdint.h>
 #include <math.h>
 #include <stddef.h>
 
+uint32_t numar = 0;
+volatile int TipSemnal = 0;
+volatile int Frecventa = 0;
+int voltage;
+
+unsigned int countDac = 0;
+unsigned int FrecventaSemnal = 0;
+unsigned int uartIndex;
+
+
+#define BUFFER_SIZE 64
+char uart_buffer[BUFFER_SIZE];
+unsigned int uart_index = 0;
+char command[BUFFER_SIZE];  // copie finală la ENTER
+
+
+int valADC = 0;
+unsigned int i;
+volatile int count = 0;
+void int_to_char(unsigned char *temp, unsigned int number);
+
+
+//pentru IIR butterworth low-pass
+#define SIGNAL_LEN 100
+#define PI 3.14159265358979
+#define MAX_UART_BUFFER 10
+
+// Coeficienți IIR Butterworth Low-pass, ordin 2 (100 Hz, Fs = 1000 Hz)
+float b[3] = {0.0675, 0.1349, 0.0675};
+float a[3] = {1.0,   -1.14298, 0.4128};
+
+// Istoric semnal
+float x[3] = {0};  // intrări x[n], x[n-1], x[n-2]
+float y[3] = {0};  // ieșiri  y[n], y[n-1], y[n-2]
+
+// Simulăm un semnal cu zgomot: sinus + zgomot aleator
+float input_signal[SIGNAL_LEN];
+float output_signal[SIGNAL_LEN];
+
+volatile unsigned int uartBuffer[20];
 
 // Variabile de test
 
-int count = 0;
+
+int count2 = 1;
 volatile unsigned int unknown_isr_vector = 0;
 
 // Declaratii Static inline
@@ -57,6 +62,7 @@ static inline size_t u32NumarCaractere(const char *str);
 #define MascaPentru50Kps         0b100
 #define TRUE                     0x1
 #define FALSE                    0x0
+#define MARIME_SEMNAL            100
 
 
 volatile uint16_t adc_buffer[MARIME_FFT];
@@ -64,12 +70,16 @@ volatile uint8_t buffer_index = 0;
 volatile uint32_t FEsantionare = 0;
 volatile size_t NumarCaractere;
 volatile uint8_t bStateDetectie = FALSE;
+volatile uint8_t StatusP21;
+volatile uint8_t StatusP22;
+volatile uint8_t StatusP23;
+//volatile uint16_t valADC;
 
-typedef enum {
-    Semnal_Sinusoidal,
-    Semnal_DinteFierastrau,
-    Semnal_Rampa
-} TipSemnal;
+//typedef enum {
+//    Semnal_Sinusoidal,
+//    Semnal_DinteFierastrau,
+//    Semnal_Rampa
+//} TipSemnal;
 
 typedef enum {
     Canal0,
@@ -78,11 +88,11 @@ typedef enum {
     Canal3
 } Canal_SAC_DAC;
 
-typedef enum {
-    F200Hz,
-    F500Hz,
-    F1KHz
-} FrecventaSemnal;
+//typedef enum {
+//    F200Hz,
+//    F500Hz,
+//    F1KHz
+//} FrecventaSemnal;
 
 typedef enum {
   TreceJos,
@@ -97,10 +107,12 @@ typedef enum {
     STATE_ON
 } LedState;
 
+
+
 volatile LedState currentState = STATE_OFF;
-volatile FrecventaSemnal PasFrecventa = F200Hz;
+//volatile FrecventaSemnal PasFrecventa = F200Hz;
 volatile Canal_SAC_DAC PasCanal = Canal0;
-volatile TipSemnal PasulDeSemnal = Semnal_Sinusoidal;
+//volatile TipSemnal PasulDeSemnal = Semnal_Sinusoidal;
 
 // Defazaj 0 Grade
 unsigned int Defazaj_0 = 0 ;
@@ -203,7 +215,7 @@ void vUART_trimite_char(char *str, size_t * nrcat)
 /****************************************************************************** */
 
 /********************************************************************************/
-/* Nume Functie: vUART_trimite_char      */
+/* Nume Functie: vUART_Trimite_string      */
 /* Argumente : niciunul         */
 /* Valoarea returnata : niciuna */
 /****** Baud rate = 115200  ************/
@@ -221,55 +233,72 @@ void vUART_Trimite_string(const char *str, size_t * nrcat)
 /****************************************************************************** */
 
 /********************************************************************************/
-/* Nume Functie: u32NumarCaractere      */
+/* Nume Functie: u32TrimiteMesaj      */
 /* Argumente : niciunul         */
 /* Valoarea returnata : niciuna */
 /****** Baud rate = 115200  ************/
-/* Funcție pentru numararea caracterelor dintr-un sir */
+/* Funcție pentru trimiterea unui mesaj */
 
-static inline size_t u32NumarCaractere(const char *str)
+static inline size_t u32TrimiteMesaj(const char *str)
 {
-    size_t count = 0;
-    while (str[count] != '\0') {
-        count++;
+    while (*str) {
+       while (!(UCA1IFG & UCTXIFG)); // așteaptă până e liber
+       UCA1TXBUF = *str++;
     }
-    return count;
 }
   /* u32NumarCaractere Terminat*/
 /****************************************************************************** */
 
-
 /********************************************************************************/
-/* Nume Functie: vInitADC      */
-/* Argumente : str         */
+/* Nume Functie: u32NumarCaractere      */
+/* Argumente : niciunul         */
 /* Valoarea returnata : niciuna */
-/* Funcție pentru configurarea ADC-ului */
+/****** Baud rate = 115200  ************/
+/* Funcție pentru typecast din int in string */
 
-void vInitADC() {
+void vIntToString(unsigned int val, char *str) {
+    char temp[10];
+    int i = 0;
 
-                                            // Configurează ADC
-    P6SEL1 |= BIT0;                         // selectează P6.0 pentru ADC
-    ADCCTL0 = ADCENC_1 | ADCSHT_2 | ADCON;  // Enable ADC, ADC clock
-    ADCCTL1 = ADCSSEL_2;                    // Sursa ceasului ADC = MCLK
-    ADCCTL2 = ADCRES_2;                     // Rezoluție 12 biți
+    if (val == 0) {
+        str[0] = '0';
+        str[1] = '\0';
+        return;
+    }
 
-    ADCMCTL0 = ADCINCH_0; // Canalul ADC pe care îl citim (P6.0)
+    while (val > 0) {
+        temp[i++] = '0' + (val % 10);
+        val /= 10;
+    }
 
-}  /* vInitADC Terminat*/
-/****************************************************************************** */
-
-/********************************************************************************/
-/* Nume Functie: vStartADC      */
-/* Argumente : str         */
-/* Valoarea returnata : niciuna */
-/* Funcție pentru pornirea ADC-ului */
-
-void vStartADC()
-{
-    ADCCTL0 |= ADCENC_1 | ADCSHS_1 ; // Start ADC conversion
+    int j = 0;
+    while (i > 0) {
+        str[j++] = temp[--i];
+    }
+    str[j] = '\0';
 }
-  /* vStartADC Terminat*/
+  /* u32NumarCaractere Terminat*/
 /****************************************************************************** */
+
+/********************************************************************************/
+/* Nume Functie: u32NumarCaractere      */
+/* Argumente : niciunul         */
+/* Valoarea returnata : niciuna */
+/****** Baud rate = 115200  ************/
+/* Funcție pentru typecast din char in int */
+
+int charToInt(char c) {
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    else
+        return -1; // valoare invalidă dacă nu e cifră
+}
+
+  /* u32NumarCaractere Terminat*/
+/****************************************************************************** */
+
+
+
 
 /********************************************************************************/
 /* Nume Functie: vInit_GPIO      */
@@ -549,411 +578,467 @@ const char* cDetectieTipFiltru(float *real, float *imag, int n, int sampleRate)
   /* u32Esantionare Terminat*/
 /****************************************************************************** */
 
+/********************************************************************************/
+/* Nume Functie: f32Aplicare_IIR      */
+/* Argumente :         */
+/* Valoarea returnata : niciuna */
+/* Funcție pentru determinarea frecventei de esantionare a ADC-ului */
+
+void f32Aplicare_IIR(float input) {
+
+    // Shift valori vechi
+    x[2] = x[1]; x[1] = x[0]; x[0] = input;
+    y[2] = y[1]; y[1] = y[0];
+
+    // Aplicarea ecuației diferențiale IIR (Direct Form I)
+    y[0] = b[0]*x[0] + b[1]*x[1] + b[2]*x[2]  // Termenii de feedforward
+         - a[1]*y[1] - a[2]*y[2];             // Termenii de feedback
+
+    return y[0];
+}
+  /* f32Aplicare_IIR Terminat*/
+/****************************************************************************** */
+
+/********************************************************************************/
+/* Nume Functie: f32Aplicare_FIR      */
+/* Argumente :         */
+/* Valoarea returnata : niciuna */
+/* Funcție pentru determinarea frecventei de esantionare a ADC-ului */
+
+void f32Aplicare_FIR(float input) {
+
+    // Shift valori vechi
+    x[2] = x[1]; x[1] = x[0]; x[0] = input;
+    y[2] = y[1]; y[1] = y[0];
+
+    // Aplicarea ecuației diferențiale IIR (Direct Form I)
+    y[0] = b[0]*x[0] + b[1]*x[1] + b[2]*x[2] ;  // Termenii de feedforward
+
+
+    return y[0];
+}
+  /* f32Aplicare_FIR Terminat*/
+/****************************************************************************** */
+
+/********************************************************************************/
+/* Nume Functie: clearTerminalAndDisplayMessages      */
+/* Argumente :         */
+/* Valoarea returnata : niciuna */
+/* Funcție pentru curatarea terminalului */
+
+void clearTerminalAndDisplayMessages(void)
+{
+    // Trimite comanda de escape pentru a curăța terminalul
+    while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = 0x1B;  // Escape character (\033)
+    while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '[';    // [
+    while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '2';    // 2
+    while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = 'J';    // J
+
+    // Prima linie: "Simulare Filtre Digitale"
+    while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\r';   // Carriage return
+    while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\n';   // Line feed
+    u32TrimiteMesaj("Simulare Filtre Digitale");
+
+    // A doua linie: "Setati Frecventa pentru generat semnalul"
+    while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\r';   // Carriage return
+    while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\n';   // Line feed
+    u32TrimiteMesaj("Student: Isachi Mihai");
+
+    // A treia linie : " Semnalul va fi in Hz: "
+    while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\r';   // Carriage return
+    while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\n';   // Line feed
+    u32TrimiteMesaj("Semnalul va fi in Hz ");
+
+    while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\r';   // Carriage return
+    while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\n';   // Line feed
+    u32TrimiteMesaj("  ATENTIE! PLACA POATE GENERA PANA LA 1.6KHz ");
+    while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\r';   // Carriage return
+    while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\n';   // Line feed
+    u32TrimiteMesaj("     !SE RECOMANDA FOLOSIREA PANA LA 1.5KHz!  ");
+
+    while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\r';   // Carriage return
+    while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\n';   // Line feed
+
+
+    // Linia 3 rămâne ca înainte (se va afișa la fiecare primire de date)
+}
+  /* clearTerminalAndDisplayMessages Terminat*/
+/****************************************************************************** */
+
 /********************* FUNCTIA MAIN ******************************/
+
 int main(void)
 {
-  WDTCTL = WDTPW + WDTHOLD;                 // oprim Watchdog-ul
+    WDTCTL = WDTPW | WDTHOLD; // Stop watchdog timer
 
-  FRCTL0 = FRCTLPW | NWAITS_2;              // configuram clock-ul la 24MHz, punem sistemul in Wait
+    // 1.0 Frequency configure
+    // operation at 24MHz(beyond 8MHz) _before_ configuring the clock system.
 
-  __bis_SR_register(SCG0);                           // disable FLL
-  CSCTL3 |= SELREF__REFOCLK;                         // se configurează FLL (Frequency Locked Loop)
-                                                     // pentru a genera un semnal de ceas de 24 MHz folosind un oscilator intern (DCO).
-  CSCTL0 = 0;                                        // dam clear DCO and MOD registers
-  CSCTL1 |= DCORSEL_7;                               // setam DCO = 24MHz
-  CSCTL2 = FLLD_0 + 731;                             // setam DCOCLKDIV = 24MHz
-  __delay_cycles(3);
-  __bic_SR_register(SCG0);                           // enable FLL
-  while(CSCTL7 & (FLLUNLOCK0 | FLLUNLOCK1));         // FLL locked
+    FRCTL0 = FRCTLPW | NWAITS_2;
 
-  CSCTL4 = SELMS__DCOCLKDIV | SELA__REFOCLK;         // Se selectează DCOCLKDIV ca sursă pentru MCLK și SMCLK
-  PM5CTL0 &= ~LOCKLPM5;                              // Disable the GPIO power-on default high-impedance mode
-  //3.0 MCLK
+    __bis_SR_register(SCG0);
+    CSCTL3 |= SELREF__REFOCLK;
+    CSCTL0 = 0;
+    CSCTL1 &= ~(0x000E);
+    CSCTL1 |= DCORSEL_5;
+    CSCTL2 = FLLD_0 + 487;
+    __delay_cycles(3);
+    __bic_SR_register(SCG0);
+    while(CSCTL7 & (FLLUNLOCK0 | FLLUNLOCK1));
 
-  P3DIR |= BIT0;
-  P3SEL0 |= BIT0;
-  //vInit_GPIO();
+    CSCTL4 = SELMS__DCOCLKDIV | SELA__REFOCLK;
+
+    CSCTL5 |= DIVM_0 | DIVS_1;                                                   // default DCOCLKDIV as MCLK and SMCLK source
+
+    // Configure SMCLK MCLK pins
+    P3DIR |= BIT0 | BIT4;                       // set ACLK SMCLK and LED pin as output
+    P3SEL0 |= BIT0 | BIT4;                             // set ACLK and  SMCLK pin as second function
+
+    /** UART **/
+
+    // Configure UART pins
 
 
-  if(P5IN & BIT4)
+
+    P4SEL0 |= BIT2 | BIT3;                     // P4.2 = TXD, P4.3 = RXD
+
+    UCA1CTLW0 |= UCSWRST;                      // Hold USCI in reset
+    UCA1CTLW0 |= UCSSEL__SMCLK;               // SMCLK = 8 MHz
+
+    UCA1BR0 = 52;                              // Baud rate = 9600 @ 8 MHz SMCLK
+    UCA1BR1 = 0;
+    UCA1MCTLW = (0x55 << 8) | (5 << 4) | UCOS16; // UCBRSx=0x55, UCBRFx=5, UCOS16=1
+
+    UCA1CTLW0 &= ~UCSWRST;                     // Release USCI from reset
+    UCA1IE |= UCRXIE;                          // Enable RX interrupt
+    clearTerminalAndDisplayMessages();
+
+
+
+
+    // PIN INTERRUPT P2.3
+    // P2.3 ->
+    P2DIR &= ~BIT3; // Configuram P2.3 ca intrare
+    P2OUT |= BIT3;                          // Configure P1.3 as pulled-up
+    P2REN |= BIT3;                          // P1.3 pull-up register enable
+    P2IES |= BIT3;                          // P1.3 Hi/Low edge
+    P2IE |= BIT3;                           // P1.3 interrupt enabled
+    // stergem indicatorul de intreruperi de la P2.3
+    P2IFG &= ~BIT3;                         // P1.3 IFG cleared
+
+    // P4.1 ->
+    P4DIR &= ~BIT1; // Configuram P4.1 ca intrare
+    P4OUT |= BIT1;                          // Configure P1.3 as pulled-up
+    P4REN |= BIT1;                          // P1.3 pull-up register enable
+    P4IES |= BIT1;                          // P1.3 Hi/Low edge
+    P4IE |= BIT1;                           // P1.3 interrupt enabled
+    // stergem indicatorul de intreruperi de la P2.3
+    P4IFG &= ~BIT1;                         // P1.3 IFG cleared
+
+    P6DIR |=BIT6; // P6.6 Digital out
+    P6OUT = BIT6; // P6.6 -> high
+
+    // ADC
+    // Configuram Timer B0 -> Fes=SMCLK/TB0CCR0
+    TB0CCTL0 |= CCIE;                                             // TBCCR0 interrupt enabled
+    TB0CCR0 = 4705;
+    TB0CTL = TBSSEL__SMCLK | MC__UP;                               // ACLK, UP mode
+
+    // PIN ADC8
+    P5SEL0 |= BIT0 ;
+    P5SEL1 |= BIT0 ;
+
+     // Configure ADC - Pulse sample mode; ADCSC trigger
+    ADCCTL0 |= ADCSHT_8 | ADCON;                                  // ADC ON,temperature sample period>30us
+    ADCCTL1 |= ADCSHP;                                            // s/w trig, single ch/conv, MODOSC
+    ADCCTL2 &= ~ADCRES;                                           // clear ADCRES in ADCCTL
+    ADCCTL2 |= ADCRES_2;                                          // 12-bit conversion results
+    ADCMCTL0 |= ADCSREF_1 | ADCINCH_8;
+    ADCIE |= ADCIE0;                                               // Enable the Interrupt request for a completed ADC_B conversion
+
+    // Configure reference
+    PMMCTL0_H = PMMPW_H;                                          // Unlock the PMM registers
+    PMMCTL2 |= INTREFEN | REFVSEL_1;                          // Vref_PMM = 2V
+    while(!(PMMCTL2 & REFGENRDY));                            // Poll till internal reference settles
+
+    // DAC
+    P1SEL0 |= BIT5;
+    P1SEL1 |= BIT5;
+
+    SAC1DAC = DACSREF_1 + DACLSEL_0 + DACIE;
+    SAC1DAT = Sinus[0];
+    SAC1DAC |= DACEN;
+
+    SAC1OA = NMUXEN + PMUXEN + PSEL_1 + NSEL_1;
+    SAC1OA |= OAPM;
+    SAC1PGA = MSEL_1;
+    SAC1OA |= SACEN + OAEN;
+    TB1CCTL0 |= CCIE;
+
+
+    TB1CCR0 = 120;
+    TB1CTL = TBSSEL__SMCLK | MC_1 | TBCLR;
+
+    __bis_SR_register(GIE); // global interrupts
+
+
+
+    PM5CTL0 &= ~LOCKLPM5;                              // Disable the GPIO power-on default high-impedance mode
+                                                       // to activate previously configured port settings
+}
+volatile uint16_t Valoare = 80;
+volatile uint16_t ValoareTastatura = 1;
+//  INTERRUPT ROUTINE UART
+
+#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
+#pragma vector=USCI_A1_VECTOR
+__interrupt void USCI_A1_ISR(void)
+#elif defined(__GNUC__)
+void __attribute__ ((interrupt(USCI_A1_VECTOR))) USCI_A1_ISR (void)
+#else
+#error Compiler not supported!
+#endif
+{
+  switch(__even_in_range(UCA1IV,USCI_UART_UCTXCPTIFG))
   {
-    bStateDetectie = TRUE; // porneste detectia de filtru
-  }
-  else
-  {
-    bStateDetectie = FALSE; // opreste detectia de filtru
-  }
-  /*vUART_init(); // Configuram UART
-  vInit_GPIO();  // Initializam GPIO
-  vInitADC();   // Initializam ADC
-  u32Esantionare(&FEsantionare); //Stocam frecventa de esantionare a ADC_ului
-  int i;
-  while(bStateDetectie)
-  {
-    vStartADC(); //Pornim ADC-ul - incepe esantionarea
-    //__bis_SR_register(CPUOFF + GIE); // Intră în low power mode până la întrerupere ADC
+    case USCI_NONE: break;
 
-    //Colectam Datele de la ADC
-    vCollectADCData();
-    if (buffer_index == MARIME_FFT)
+    case USCI_UART_UCRXIFG:
     {
-       // Procesăm datele cu FFT
-        float real[MARIME_FFT] = {0};
-        float imag[MARIME_FFT] = {0};
-        for (i = 0; i < MARIME_FFT; i++)
-        {
-            real[i] = (float)adc_buffer[i];  // Înlocuiește cu valorile ADC
-            imag[i] = 0;
+      char received = UCA1RXBUF;
+
+      // Echo back character
+      while (!(UCA1IFG & UCTXIFG));
+      UCA1TXBUF = received;
+
+      if (received == '\r')  // Enter
+      {
+
+        uart_buffer[uart_index] = '\0';
+
+        ValoareTastatura = atoi(uart_buffer);  // convertim toată valoarea
+        Valoare = (uint16_t)((8000000.0f / ( ValoareTastatura * 100.0f ))-1);;
+
+        // opțional: copiem în command
+        for (i = 0; i <= uart_index; i++) {
+          command[i] = uart_buffer[i];
         }
 
-        // Calculăm FFT
-        vFFT(real, imag, MARIME_FFT);
-        vDoCalculateFFTParameters(real, imag, MARIME_FFT, FEsantionare); // calculam parametrii FFT
-        // Detectăm tipul filtrului
-        const char *filterType = cDetectieTipFiltru(real, imag, MARIME_FFT, FEsantionare); // detectia de filtru
+
+
+        // Trimite cifra cu cifra
+        for (i = 0; i < uart_index; i++) {
+            while (!(UCA1IFG & UCTXIFG));  // Așteaptă să fie liber bufferul de transmisie
+            UCA1TXBUF = uart_buffer[i];    // Trimite caracterul curent din uart_buffer
+        }
+
+
+        // trimite " Hz"
+        while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = ' ';
+        while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = 'H';
+        while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = 'z';
+
+        // trimitem newline
+        while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\n';
+        while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\r';
+
+        uart_index = 0;
+      }
+      else if (uart_index < BUFFER_SIZE - 1)
+      {
+        uart_buffer[uart_index++] = received;
+      }
+
+      break;
     }
 
-
-  }*/
-
-  P5SEL0 |= BIT4;  //Setam pinul P5.4 pentru a porni Detectia Tipului de Filtru
-  P5DIR &= ~BIT4;
-  P5REN &= ~BIT4;
-
-  // Configurare LED pe P6.6 ca output
-  P6DIR |= BIT6;              // P6.6 output
-  P6OUT &= ~BIT6;             // LED oprit inițial
-  P6SEL0 &= ~BIT6;
-  P6SEL1 &= ~BIT6;
-
-  P1DIR |= BIT0;
-  P1SEL1 |= BIT0;                             // Se configurează P1.0 ca ieșire pentru SMCLK (pentru diagnosticare).
-
-//configurare DAC -> Se configurează pinii P1.1, P1.5, P3.1 și P3.5 pentru ieșirea semnalului DAC
-  P1SEL0 |= BIT1;                           // Selectam P1.1 ca OA0O
-  P1SEL1 |= BIT1;                           // OA este folosit ca buffer pentru DAC
-
-  P1SEL0 |= BIT5;                           // Selectam P1.5 ca OA0O
-  P1SEL1 |= BIT5;                           // OA este folosit ca buffer pentru DAC
-
-  P3SEL0 |= BIT1;                           // Selectam P3.1 as OA0O
-  P3SEL1 &= ~BIT1;                          // OA este folosit ca buffer pentru DAC
-
-  P3SEL0 |= BIT5;                           // Selectam P3.5 as OA0O
-  P3SEL1 &= ~BIT5;                          // OA este folosit ca buffer pentru DAC
-
-  // Configurăm P2.1, P2.2, P2.3 și P2.5 ca intrări cu rezistență de pull-up și întrerupere pe flanc descendent
-  P2DIR &= ~(BIT1 | BIT2 | BIT3 | BIT5);         // Setăm P2.1, P2.2, P2.3, P2.5 ca intrări
-  P2OUT |=  (BIT1 | BIT2 | BIT3 | BIT5);         // Activăm rezistențele de pull-up (1 în OUT)
-  P2REN |=  (BIT1 | BIT2 | BIT3 | BIT5);         // Activăm rezistențele interne (pull-up active)
-  P2IES |=  (BIT1 | BIT2 | BIT3 | BIT5);         // Detectăm tranziții pe flanc descendent (1 -> 0)
-  P2IE  |=  (BIT1 | BIT2 | BIT3 | BIT5);         // Activăm întreruperile pentru acești pini
-  P2IFG &= ~(BIT1 | BIT2 | BIT3 | BIT5);         // Curățăm orice flag rămas
-
-  // configuram butonul pentru P4.1
-
-  P4OUT |= BIT1;                          // este configurat asemanator cu P2.3
-  P4REN |= BIT1;
-  P4IES |= BIT1;
-  P4IE  |= BIT1;
-  P4IFG &= ~BIT1;
-
- // __delay_cycles(400);
-
-  // Configuram referinta
-  PMMCTL0_H = PMMPW_H;                      // activarea PMM
-  PMMCTL2 = INTREFEN | REFVSEL_0;           // Se activeaza referinta de 2V
-  while(!(PMMCTL2 & REFGENRDY));            // Se asteapta stabilizarea acestuia
-
-// SAC0_DAC
-// SAC0DACSTS=DACIFG;// clear intreupt
-// SAC0DAT = sin[0]; // write sample
-
-
-  SAC0DAC = DACSREF_0 + DACLSEL_2;  // selectam referinta interna ca sursa pentru DAC
-  SAC0DAT = rampa[Defazaj_0];               // Initializam  valorile pentru DAC
-  SAC0DAC |= DACEN;                         // Activam DAC-ul
- // SAC0DACSTS=DACIFG;// clear intreupt
-
-
-
-// SAC1_DAC
-  SAC1DAC = DACSREF_0 + DACLSEL_2;  // selectam referinta interna ca sursa pentru DAC
-  SAC1DAT = rampa[Defazaj_90];                 // Initializam  valorile pentru DAC
-  SAC1DAC |= DACEN;                            // Activam DAC-ul
- // SAC1DACSTS=DACIFG;// clear intreupt
-
-
-// SAC2_DAC
-  SAC2DAC = DACSREF_0 + DACLSEL_2;  // selectam referinta interna ca sursa pentru DAC
-  SAC2DAT = Sinus[Defazaj_180];                // Initializam  valorile pentru DAC
-  SAC2DAC |= DACEN;                            // Activam DAC-ul
- // SAC2DACSTS=DACIFG;// clear intreupt
-
-
-// SAC3_DAC
-  SAC3DAC = DACSREF_0 + DACLSEL_2;  // selectam referinta interna ca sursa pentru DAC
-  SAC3DAT = Sinus[Defazaj_270];                // Initializam  valorile pentru DAC
-  SAC3DAC |= DACEN;                            // Activam DAC-ul
- // SAC3DACSTS=DACIFG;// clear intreupt
-
-
-// SAC0_AO
-  SAC0OA = NMUXEN + PMUXEN + PSEL_1 + NSEL_1;  // Selectam inputurile pozitive si negative
-  SAC0OA |= OAPM_0;                            // Selectam viteza redusa si LPM
-  SAC0PGA = MSEL_1;                            // Setam OA ca buffer
-  SAC0OA |= SACEN + OAEN;                      // Activam SAC-ul si AO
-
-
-// SAC1_AO
-  SAC1OA = NMUXEN + PMUXEN + PSEL_1 + NSEL_1;  // Selectam inputurile pozitive si negative
-  SAC1OA |= OAPM_0;                            // Selectam viteza redusa si LPM
-  SAC1PGA = MSEL_1;                            // Setam OA ca buffer
-  SAC1OA |= SACEN + OAEN;                      // Activam SAC-ul si AO
-
-
-// SAC2_AO
-  SAC2OA = NMUXEN + PMUXEN + PSEL_1 + NSEL_1;  // Selectam inputurile pozitive si negative
-  SAC2OA |= OAPM_0;                            // Selectam viteza redusa si LPM
-  SAC2PGA = MSEL_1;                            // Setam OA ca buffer
-  SAC2OA |= SACEN + OAEN;                      // Activam SAC-ul si AO
-
-
-// SAC3_AO
-  SAC3OA = NMUXEN + PMUXEN + PSEL_1 + NSEL_1;  // Selectam inputurile pozitive si negative
-  SAC3OA |= OAPM_0;                            // Selectam viteza redusa si LPM
-  SAC3PGA = MSEL_1;                            // Setam OA ca buffer
-  SAC3OA |= SACEN + OAEN;                      // Activam SAC-ul si AO
-
-
- // Folosim TB2.1 ca DAC hardware trigger - pentru a obtine frecventa de actualizare
-
-  TB2CCR0 = 120-1;                             // Perioada setata pentru 120 de cicluri
-  TB2CCTL1 = OUTMOD_6;                         // TBCCR1 toggle/set - Modul PWM
-  TB2CCR1 = 60;                                // TBCCR1 PWM duty cycle (CCR1/CCR2)
-  TB2CTL = TBSSEL__SMCLK | MC_1 | TBCLR;       // SMCLK ca si semnal de tact, se porneste in UP mode
-
-  //P2IFG |= BIT0 | BIT1 | BIT2| BIT3 | BIT4;
- // P4IFG |= BIT1;
-  // Activam intreruperile
-  PM5CTL0 &= ~LOCKLPM5;
-  while(1)
-      {
-      __bis_SR_register(GIE);         // Enter LPM3, interrupts enabled
-      __no_operation();
-      P6OUT ^= BIT6;
-      }
-                       // For debugger
+    case USCI_UART_UCTXIFG: break;
+    case USCI_UART_UCSTTIFG: break;
+    case USCI_UART_UCTXCPTIFG: break;
+    default: break;
+  }
 }
 
 // Port 2 interrupt service routine
-// ISR pentru Portul 2
-#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
 #pragma vector=PORT2_VECTOR
 __interrupt void Port_2(void)
-#elif defined(__GNUC__)
-void __attribute__ ((interrupt(PORT2_VECTOR))) Port_2 (void)
-#else
-#error Compiler not supported!
-#endif
 {
-    switch(__even_in_range(P2IV, P2IV__P2IFG7))
-    {
+    P2IFG &= ~BIT3;                         // Clear P1.3 IFG
 
-        case P2IV__P2IFG1:
-            P2IFG &= ~BIT1;
-            PasCanal++;
-            if (PasCanal > Canal3) PasCanal = Canal0;
-            __bic_SR_register_on_exit(LPM3_bits);
+    switch(TipSemnal){
+        case 0:
+            // Trimite comanda de escape pentru a curăța terminalul
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = 0x1B;  // Escape character (\033)
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '[';    // [
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '2';    // 2
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = 'J';    // J
+
+            // Prima linie: "Tip semnal: Sinus"
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\r';   // Carriage return
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\n';   // Line feed
+            u32TrimiteMesaj(" Tip semnal: Sinus");
+            TipSemnal = 1;
             break;
+        case 1:
+            // Trimite comanda de escape pentru a curăța terminalul
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = 0x1B;  // Escape character (\033)
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '[';    // [
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '2';    // 2
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = 'J';    // J
 
-
-        case P2IV__P2IFG2:
-            P2IFG &= ~BIT2;
-            PasulDeSemnal++;
-            if (PasulDeSemnal > Semnal_Rampa) PasulDeSemnal = Semnal_Sinusoidal;
+            // Prima linie: "Tip semnal: Dinte Fierastrau"
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\r';   // Carriage return
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\n';   // Line feed
+            u32TrimiteMesaj(" Tip semnal: Dinte Fierastrau");
+            TipSemnal = 2;
             break;
+        case 2:
+            // Trimite comanda de escape pentru a curăța terminalul
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = 0x1B;  // Escape character (\033)
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '[';    // [
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '2';    // 2
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = 'J';    // J
 
-
-        case P2IV__P2IFG3:
-            P2IFG &= ~BIT3;
-            count++;
-            switch (PasCanal) {
-                case Canal0:
-                    Defazaj_0++;
-                    if (Defazaj_0 > Numar_Esantioane-1) Defazaj_0 = 0;
-                    break;
-                case Canal1:
-                    Defazaj_90++;
-                    if (Defazaj_90 > Numar_Esantioane-1) Defazaj_90 = 0;
-                    break;
-                case Canal2:
-                    Defazaj_180++;
-                    if (Defazaj_180 > Numar_Esantioane-1) Defazaj_180 = 0;
-                    break;
-                case Canal3:
-                    Defazaj_270++;
-                    if (Defazaj_270 > Numar_Esantioane-1) Defazaj_270 = 0;
-                    break;
-                default: break;
-            }
+            // Prima linie: "Tip semnal: Rampa"
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\r';   // Carriage return
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\n';   // Line feed
+            u32TrimiteMesaj(" Tip semnal: Rampa");
+            TipSemnal = 0;
             break;
-
-
-        case P2IV__P2IFG4:
-            P2IFG &= ~BIT4;
+        default:
             break;
-
-        case P2IV__P2IFG5:
-            P2IFG &= ~BIT5;
-            switch (PasCanal) {
-                case Canal0:
-                    Defazaj_0--;
-                    if (Defazaj_0 == 65535) Defazaj_0 = Numar_Esantioane;
-                    break;
-                case Canal1:
-                    Defazaj_90--;
-                    if (Defazaj_90 == 65535) Defazaj_90 = Numar_Esantioane;
-                    break;
-                case Canal2:
-                    Defazaj_180--;
-                    if (Defazaj_180 == 65535) Defazaj_180 = Numar_Esantioane;
-                    break;
-                case Canal3:
-                    Defazaj_270--;
-                    if (Defazaj_270 == 65535) Defazaj_270 = Numar_Esantioane;
-                    break;
-                default: break;
-            }
-            break;
-
-        default: break;
     }
 
 
-    __bic_SR_register_on_exit(LPM3_bits);
 }
 
-#pragma vector = TIMER2_B0_VECTOR
-__interrupt void Timer2_B0_ISR(void)
-{
-
-
-     Defazaj_0++;    // incrementare index defazaj 0 grade
-     Defazaj_90++;   // incrementare index defazaj 90 grade
-     Defazaj_180++;  // incrementare index defazaj 180 grade
-     Defazaj_270++;  // incrementare index defazaj 270 grade
-
-     //Selectam tipul de semnal
-     switch(PasulDeSemnal)
-
-         // semnal sinusoidal
-     { case Semnal_Sinusoidal:
-                 SAC0DAT = Sinus[Defazaj_0];
-                 SAC1DAT = Sinus[Defazaj_90];
-                 SAC2DAT = Sinus[Defazaj_180];
-                 SAC3DAT = Sinus[Defazaj_270];
-                 break;
-
-         // semnal dinte fierastrau
-       case Semnal_DinteFierastrau:
-                 SAC0DAT = DinteFierastrau[Defazaj_0];
-                 SAC1DAT = DinteFierastrau[Defazaj_90];
-                 SAC2DAT = DinteFierastrau[Defazaj_180];
-                 SAC3DAT = DinteFierastrau[Defazaj_270];
-                 break;
-
-         // semnal rampa
-       case Semnal_Rampa:
-                 SAC0DAT = rampa[Defazaj_0];
-                 SAC1DAT = rampa[Defazaj_90];
-                 SAC2DAT = rampa[Defazaj_180];
-                 SAC3DAT = rampa[Defazaj_270];
-                 break;
-            // setam pe default sa fie sinus
-          default:
-                 SAC0DAT = rampa[Defazaj_0];
-                 SAC1DAT = rampa[Defazaj_90];
-                 SAC2DAT = rampa[Defazaj_180];
-                 SAC3DAT = rampa[Defazaj_270];
-                 break;
-     }
-     // verificam indexul de defazaj pentru 0 Grade
-     if(Defazaj_0 >= 99)
-     {
-            // resetam indexul daca a atins ultima valoare din array
-         Defazaj_0=0;
-     }
-     // verificam indexul de defazaj pentru 90 Grade
-     else if(Defazaj_90 >= 99)
-     {
-         // resetam indexul daca a atins ultima valoare din array
-         Defazaj_90=0;
-     }
-     // verificam indexul de defazaj pentru 180 Grade
-     else if(Defazaj_180 >= 99)
-     {
-        // resetam indexul daca a atins ultima valoare din array
-        Defazaj_180=0;
-     }
-     // verificam indexul de defazaj pentru 270 Grade
-     else if(Defazaj_270 >= 99)
-     {
-        // resetam indexul daca a atins ultima valoare din array
-        Defazaj_270=0;
-     }
-
-}
-
-
-// Port 4 interrupt service routine
-#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
+// Port 2 interrupt service routine
 #pragma vector=PORT4_VECTOR
 __interrupt void Port_4(void)
-#elif defined(__GNUC__)
-void __attribute__ ((interrupt(PORT4_VECTOR))) Port_4 (void)
-#else
-#error Compiler not supported!
-#endif
 {
-    P4IFG &= ~BIT1;                         // Clear P4.1 IFG
-    PasFrecventa++;     //0-> 200Hz, 1-> 500Hz, 2->1KHz
-    if(PasFrecventa > F1KHz) PasFrecventa = F200Hz;
-    switch(PasFrecventa)
-    {
-    case F200Hz:
-                                                    // Folosim TB2.1 ca DAC hardware trigger
-         TB2CCR0 = 1200-1;                          // CLK= 20KHz f-semnal=200Hz  ->  PWM Period/2
-         TB2CCTL1 = OUTMOD_6;                       // TBCCR1 toggle/set
-         TB2CCR1 = 600;                             // TBCCR1 PWM duty cycle
-         TB2CTL = TBSSEL__SMCLK | MC_1 | TBCLR;     // SMCLK, up mode, clear TBR
+    if (P4IFG & BIT1){
+    P4IFG &= ~BIT1;
 
-        break;
+    switch(FrecventaSemnal){
+        case 0:
+            // Trimite comanda de escape pentru a curăța terminalul
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = 0x1B;  // Escape character (\033)
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '[';    // [
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '2';    // 2
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = 'J';    // J
 
-    case F500Hz:                               // Folosim TB2.1 ca DAC hardware trigger
-        TB2CCR0 = 480-1;                           // CLK= 50KHz f-semnal=500Hz ->  PWM Period/2
-        TB2CCTL1 = OUTMOD_6;                       // TBCCR1 toggle/set
-        TB2CCR1 = 240;                             // TBCCR1 PWM duty cycle
-        TB2CTL = TBSSEL__SMCLK | MC_1 | TBCLR;     // SMCLK, up mode, clear TBR
+            // Prima linie: "Setat automat la 80Hz"
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\r';   // Carriage return
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\n';   // Line feed
+            u32TrimiteMesaj(" Setat automat la 80Hz");
+            FrecventaSemnal = 1;
+            break;
+        case 1:
+            // Trimite comanda de escape pentru a curăța terminalul
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = 0x1B;  // Escape character (\033)
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '[';    // [
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '2';    // 2
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = 'J';    // J
 
-       break;
+            // Prima linie: "Seteaza tu frecventa:"
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\r';   // Carriage return
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\n';   // Line feed
+            u32TrimiteMesaj(" Seteaza tu frecventa:");
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\r';   // Carriage return
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\n';   // Line feed
+            FrecventaSemnal = 2;
+            break;
+        case 2:
+            // Trimite comanda de escape pentru a curăța terminalul
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = 0x1B;  // Escape character (\033)
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '[';    // [
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '2';    // 2
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = 'J';    // J
 
-    case F1KHz:                                // Folosim TB2.1 ca DAC hardware trigger
-                                                   // CLK= 100KHz f-semnal=1000Hz   ->  PWM Period/2
-        TB2CCR0 = 240-1;                           // PWM Period/2
-        TB2CCTL1 = OUTMOD_6;                       // TBCCR1 toggle/set
-        TB2CCR1 = 120;                             // TBCCR1 PWM duty cycle
-        TB2CTL = TBSSEL__SMCLK | MC_1 | TBCLR;     // SMCLK, up mode, clear TBR
+            // Prima linie: "Setat automat la 80Hz"
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\r';   // Carriage return
+            while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = '\n';   // Line feed
+            u32TrimiteMesaj(" Setat automat la 800Hz");
+            FrecventaSemnal = 0;
+        default:
+            break;
+    } }
 
-       break;
 
-    default:                                       // Folosim TB2.1 ca DAC hardware trigger
-        //PasFrecventa = 0;
-        TB2CCR0 = 1200-1;                          // CLK= 20KHz f-semnal=200Hz ->  PWM Period/2
-        TB2CCTL1 = OUTMOD_6;                       // TBCCR1 toggle/set
-        TB2CCR1 = 600;                             // TBCCR1 PWM duty cycle
-        TB2CTL = TBSSEL__SMCLK | MC_1 | TBCLR;     // SMCLK, up mode, clear TBR
-
-       break;
-    }
 }
+
+
+// INTERRUPT ADC TIMER
+#pragma vector = TIMER0_B0_VECTOR
+__interrupt void Timer_B (void)
+{
+    P6OUT ^= BIT6;
+    ADCCTL0 |= ADCENC | ADCSC;                                    // Sampling and conversion start
+
+}
+
+// INTERRUPT ADC
+#pragma vector=ADC_VECTOR
+__interrupt void ADC_ISR(void)
+{
+            valADC = ADCMEM0;
+            if (valADC <= 1) valADC = 1;
+            else valADC = ADCMEM0 - 1;
+            //TB1CCR0 = valADC - 1;
+            //Frecventa = 12000000 / valADC + 1;
+
+}
+
+
+uint16_t ValoareLast = 1;
+// DAC
+// limita de transmisie 1.6 Khz - TB1CCR0 = [2Hz , 1.6KHz]
+// INTERRUPT DAC TIMER
+#pragma vector = TIMER1_B0_VECTOR
+__interrupt void Timer1_B0_ISR(void)
+{
+
+    switch(FrecventaSemnal){
+        case 0:
+            TB1CCR0 = 100; // 800Hz SMCLK/TBCCR * 100
+            break;
+        case 1:
+            TB1CCR0 = 1000;  // 80Hz SMCLK/TBCCR * 100
+            break;
+        case 2:
+
+                TB1CCR0 = Valoare;
+        default:
+            break;
+    }
+
+    switch(TipSemnal){
+        case 0:
+            countDac++;
+            if(countDac==100)
+            countDac=0;
+
+            SAC1DAT = rampa[countDac];
+            break;
+        case 1:
+            countDac++;
+            if(countDac==100)
+            countDac=0;
+            SAC1DAT = Sinus[countDac];
+            break;
+        case 2:
+            countDac++;
+            if(countDac==100)
+            countDac=0;
+            SAC1DAT = DinteFierastrau[countDac];
+            break;
+        default:
+            break;
+    }
+
+
+}
+
+
+
+
