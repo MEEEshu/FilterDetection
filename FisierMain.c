@@ -1,11 +1,13 @@
-#include <msp430.h>
-#include <stdint.h>
-#include <math.h>
-#include <stddef.h>
 #include "dsp_filters.h"
 #include "Project_Generic_functions.h"
 #include "Variabile_Globale.h"
 
+static inline Configurare_Pin_Intrerupere_Port2(uint16_t Pin);
+static inline Configurare_Pin_Intrerupere_Port4(uint16_t Pin);
+static inline Configurare_Dac1();
+static inline Configurare_Dac2();
+
+#define Intrerupere_P20 (P2IFG & BIT0)
 #define Intrerupere_P21 (P2IFG & BIT1)
 #define Intrerupere_P22 (P2IFG & BIT2)
 #define Intrerupere_P23 (P2IFG & BIT3)
@@ -14,6 +16,7 @@
 #define Intrerupere_P26 (P2IFG & BIT6)
 #define Intrerupere_P27 (P2IFG & BIT7)
 
+#define Intrerupere_P40 (P4IFG & BIT0)
 #define Intrerupere_P41 (P4IFG & BIT1)
 #define Intrerupere_P42 (P4IFG & BIT2)
 #define Intrerupere_P43 (P4IFG & BIT3)
@@ -21,6 +24,109 @@
 #define Intrerupere_P45 (P4IFG & BIT5)
 #define Intrerupere_P46 (P4IFG & BIT6)
 #define Intrerupere_P47 (P4IFG & BIT7)
+
+
+/********************* FUNCTII INLINE ******************************/
+
+
+/********************************************************************************/
+/* Nume Functie: Configurare_Pin_Intrerupere_Port2      */
+/* Argumente : niciunul         */
+/* Valoarea returnata : niciuna */
+/* Mută eșantioanele anterioare în buffer          */
+/* Adaugă eșantionul nou.      */
+/* Configurare Pini pentru intrerupere */
+
+static inline Configurare_Pin_Intrerupere_Port2(uint16_t Pin)
+{
+P2DIR &= ~Pin;     // Setam pinul ca intrare
+P2REN |= Pin;      // Activează rezistor intern
+P2OUT |= Pin;      // Pull-up
+
+P2IES |= Pin;      // Interrupt on falling edge (apasare)
+P2IFG &= ~Pin;     // Clear flag
+P2IE  |= Pin;      // Activează întreruperea pe pin
+}
+/* Configurare_Pin_Intrerupere_Port2 Terminat*/
+/****************************************************************************** */
+
+/********************************************************************************/
+/* Nume Functie: Configurare_Pin_Intrerupere_Port4      */
+/* Argumente : niciunul         */
+/* Valoarea returnata : niciuna */
+/* Mută eșantioanele anterioare în buffer          */
+/* Adaugă eșantionul nou.      */
+/* Configurare Pini pentru intrerupere */
+
+static inline Configurare_Pin_Intrerupere_Port4(uint16_t Pin)
+{
+P4DIR &= ~Pin;     // Setam pinul ca intrare
+P4REN |= Pin;      // Activează rezistor intern
+P4OUT |= Pin;      // Pull-up
+
+P4IES |= Pin;      // Interrupt on falling edge (apasare)
+P4IFG &= ~Pin;     // Clear flag
+P4IE  |= Pin;      // Activează întreruperea pe pin
+}
+/* Configurare_Pin_Intrerupere_Port4 Terminat*/
+/****************************************************************************** */
+
+
+/********************************************************************************/
+/* Nume Functie: Configurare_Dac1      */
+/* Argumente : niciunul         */
+/* Valoarea returnata : niciuna */
+/* Mută eșantioanele anterioare în buffer          */
+/* Adaugă eșantionul nou.      */
+/* Configurare DAC1 si Pin-ul de output P1.5*/
+
+static inline Configurare_Dac1()
+{
+    // DAC P1.5
+    P1SEL0 |= BIT5;
+    P1SEL1 |= BIT5;
+
+    SAC1DAC = DACSREF_1 + DACLSEL_0 + DACIE;
+    SAC1DAT = Sinus[0];
+    SAC1DAC |= DACEN;
+
+    SAC1OA = NMUXEN + PMUXEN + PSEL_1 + NSEL_1;
+    SAC1OA |= OAPM;
+    SAC1PGA = MSEL_1;
+    SAC1OA |= SACEN + OAEN;
+
+}
+/* Configurare_Dac1 Terminat*/
+/****************************************************************************** */
+
+/********************************************************************************/
+/* Nume Functie: Configurare_Dac2      */
+/* Argumente : niciunul         */
+/* Valoarea returnata : niciuna */
+/* Mută eșantioanele anterioare în buffer          */
+/* Adaugă eșantionul nou.      */
+/* Configurare DAC2 si Pin-ul de output P1.5*/
+
+static inline Configurare_Dac2()
+{
+    // DAC P3.1
+    // Configurează pinul P3.1 ca DACOUT (funcție alternativă)
+    P3SEL0 |= BIT1;
+    P3SEL1 &= ~BIT1;
+
+    SAC2DAC = DACSREF_1 + DACLSEL_0 + DACIE;
+    SAC2DAT = 1000;
+    SAC2DAC |= DACEN;
+
+    SAC2OA = NMUXEN + PMUXEN + PSEL_1 + NSEL_1;
+    SAC2OA |= OAPM;
+    SAC2PGA = MSEL_1;
+    SAC2OA |= SACEN + OAEN;
+    TB1CCTL0 |= CCIE;
+
+}
+/* Configurare_Dac1 Terminat*/
+/****************************************************************************** */
 
 
 
@@ -70,40 +176,17 @@ int main(void)
 
     UCA1CTLW0 &= ~UCSWRST;                     // Release USCI from reset
     UCA1IE |= UCRXIE;                          // Enable RX interrupt
+
     clearTerminalAndDisplayMessages();
 
-
-
-
-    // PIN INTERRUPT P2.3
-    // P2.3 ->
-    P2DIR &= ~BIT3; // Configuram P2.3 ca intrare
-    P2OUT |= BIT3;                          // Configure P2.3 as pulled-up
-    P2REN |= BIT3;                          // P2.3 pull-up register enable
-    P2IES |= BIT3;                          // P2.3 Hi/Low edge
-    P2IE |= BIT3;                           // P2.3 interrupt enabled
-    // stergem indicatorul de intreruperi de la P2.3
-    P2IFG &= ~BIT3;                         // P2.3 IFG cleared
-
-    // PIN INTERRUPT P2.2
-    // P2.2 ->
-    P2DIR &= ~BIT2; // Configuram P2.3 ca intrare
-    P2OUT |= BIT2;                          // Configure P2.2 as pulled-up
-    P2REN |= BIT2;                          // P2.2 pull-up register enable
-    P2IES |= BIT2;                          // P2.2 Hi/Low edge
-    P2IE |= BIT2;                           // P2.2 interrupt enabled
-    // stergem indicatorul de intreruperi de la P2.2
-    P2IFG &= ~BIT2;                         // P2.2 IFG cleared
-
-    // PIN INTERRUPT P4.1
-    // P4.1 ->
-    P4DIR &= ~BIT1; // Configuram P4.1 ca intrare
-    P4OUT |= BIT1;                          // Configure P4.1 as pulled-up
-    P4REN |= BIT1;                          // P4.1 pull-up register enable
-    P4IES |= BIT1;                          // P4.1 Hi/Low edge
-    P4IE |= BIT1;                           // P4.1 interrupt enabled
-    // stergem indicatorul de intreruperi de la P4.1
-    P4IFG &= ~BIT1;                         // P4.1 IFG cleared
+    /* Configurare Pin P2.0 */
+    Configurare_Pin_Intrerupere_Port2(BIT0);
+    /* Configurare Pin P2.1 */
+    Configurare_Pin_Intrerupere_Port2(BIT1);
+    /* Configurare Pin P2.3 */
+    Configurare_Pin_Intrerupere_Port2(BIT3);
+    /* Configurare Pin P4.1 */
+    Configurare_Pin_Intrerupere_Port4(BIT1);
 
     P6DIR |=BIT6; // P6.6 Digital out
     P6OUT = BIT6; // P6.6 -> high
@@ -131,35 +214,10 @@ int main(void)
     PMMCTL2 |= INTREFEN | REFVSEL_1;                          // Vref_PMM = 2V
     while(!(PMMCTL2 & REFGENRDY));                            // Poll till internal reference settles
 
-    // DAC P1.5
-    P1SEL0 |= BIT5;
-    P1SEL1 |= BIT5;
+    Configurare_Dac1();
+    Configurare_Dac2();
 
-    // DAC P3.1
-    // Configurează pinul P3.1 ca DACOUT (funcție alternativă)
-    P3SEL0 |= BIT1;
-    P3SEL1 &= ~BIT1;
-
-    SAC1DAC = DACSREF_1 + DACLSEL_0 + DACIE;
-    SAC1DAT = Sinus[0];
-    SAC1DAC |= DACEN;
-
-    SAC1OA = NMUXEN + PMUXEN + PSEL_1 + NSEL_1;
-    SAC1OA |= OAPM;
-    SAC1PGA = MSEL_1;
-    SAC1OA |= SACEN + OAEN;
-
-    SAC2DAC = DACSREF_1 + DACLSEL_0 + DACIE;
-    SAC2DAT = 1000;
-    SAC2DAC |= DACEN;
-
-    SAC2OA = NMUXEN + PMUXEN + PSEL_1 + NSEL_1;
-    SAC2OA |= OAPM;
-    SAC2PGA = MSEL_1;
-    SAC2OA |= SACEN + OAEN;
     TB1CCTL0 |= CCIE;
-
-
     TB1CCR0 = 120;
     TB1CTL = TBSSEL__SMCLK | MC_1 | TBCLR;
 
@@ -248,17 +306,24 @@ void __attribute__ ((interrupt(USCI_A1_VECTOR))) USCI_A1_ISR (void)
 #pragma vector=PORT2_VECTOR
 __interrupt void Port_2(void)
 {
+    if (Intrerupere_P20){
+           P2IFG &= ~BIT0;                     // Clear P2.2 IFG
+           FIR_Activ ^= 1;
+    }
 
+    if (Intrerupere_P21){
+           P2IFG &= ~BIT1;                     // Clear P2.2 IFG
+           IIR_Activ ^= 1;
+           count++;
+    }
     if (Intrerupere_P22){
            P2IFG &= ~BIT2;                     // Clear P2.2 IFG
            count++;
     }
-
     if (Intrerupere_P23){
         P2IFG &= ~BIT3;                     // Clear P2.3 IFG
 
         switch(TipSemnal){
-
         case 0:
             // Trimite comanda de escape pentru a curăța terminalul
             while (!(UCA1IFG & UCTXIFG)); UCA1TXBUF = 0x1B;  // Escape character (\033)
@@ -300,8 +365,26 @@ __interrupt void Port_2(void)
             break;
         default:
             break;
+        }
     }
+
+    if (Intrerupere_P24){
+           P2IFG &= ~BIT4;                     // Clear P2.2 IFG
+           count++;
     }
+    if (Intrerupere_P25){
+           P2IFG &= ~BIT5;                     // Clear P2.2 IFG
+           count++;
+    }
+    if (Intrerupere_P26){
+           P2IFG &= ~BIT6;                     // Clear P2.2 IFG
+           count++;
+    }
+    if (Intrerupere_P27){
+           P2IFG &= ~BIT6;                     // Clear P2.2 IFG
+           count++;
+    }
+
 
 }
 
@@ -309,9 +392,13 @@ __interrupt void Port_2(void)
 #pragma vector=PORT4_VECTOR
 __interrupt void Port_4(void)
 {
+    if (Intrerupere_P40){
+           P4IFG &= ~BIT0;                     // Clear P2.2 IFG
+           count++;
+    }
+
     if (Intrerupere_P41){
     P4IFG &= ~BIT1;
-
     switch(FrecventaSemnal){
         case 0:
             // Trimite comanda de escape pentru a curăța terminalul
@@ -355,7 +442,40 @@ __interrupt void Port_4(void)
             FrecventaSemnal = 0;
         default:
             break;
-    } }
+        }
+    }
+    if (Intrerupere_P42){
+           P4IFG &= ~BIT2;                     // Clear P2.2 IFG
+           count++;
+    }
+    if (Intrerupere_P43){
+           P4IFG &= ~BIT3;                     // Clear P2.2 IFG
+           count++;
+    }
+    if (Intrerupere_P43){
+           P4IFG &= ~BIT3;                     // Clear P2.2 IFG
+           count++;
+    }
+    if (Intrerupere_P44){
+           P4IFG &= ~BIT4;                     // Clear P2.2 IFG
+           count++;
+    }
+    if (Intrerupere_P44){
+           P4IFG &= ~BIT4;                     // Clear P2.2 IFG
+           count++;
+    }
+    if (Intrerupere_P45){
+           P4IFG &= ~BIT5;                     // Clear P2.2 IFG
+           count++;
+    }
+    if (Intrerupere_P46){
+           P4IFG &= ~BIT6;                     // Clear P2.2 IFG
+           count++;
+    }
+    if (Intrerupere_P46){
+           P4IFG &= ~BIT6;                     // Clear P2.2 IFG
+           count++;
+    }
 
 
 }
@@ -376,9 +496,8 @@ __interrupt void ADC_ISR(void)
 {
             valADC = ADCMEM0;
             if (valADC <= 1) valADC = 1;
-            else valADC = ADCMEM0 - 1;
-            //TB1CCR0 = valADC - 1;
-            //Frecventa = 12000000 / valADC + 1;
+            else valADC = ADCMEM0;
+
 
 }
 

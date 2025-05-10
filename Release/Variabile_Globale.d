@@ -2,6 +2,12 @@
 
 Variabile_Globale.obj: ../Variabile_Globale.c
 Variabile_Globale.obj: ../Variabile_Globale.h
+Variabile_Globale.obj: D:/ccs/ccsInstalled/ccs/ccs_base/msp430/include/msp430.h
+Variabile_Globale.obj: D:/ccs/ccsInstalled/ccs/ccs_base/msp430/include/msp430fr2355.h
+Variabile_Globale.obj: D:/ccs/ccsInstalled/ccs/ccs_base/msp430/include/in430.h
+Variabile_Globale.obj: D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/intrinsics.h
+Variabile_Globale.obj: D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/intrinsics_legacy_undefs.h
+Variabile_Globale.obj: D:/ccs/ccsInstalled/ccs/ccs_base/msp430/include/legacy.h
 Variabile_Globale.obj: D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/stdint.h
 Variabile_Globale.obj: D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/_ti_config.h
 Variabile_Globale.obj: D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/linkage.h
@@ -27,6 +33,18 @@ Variabile_Globale.obj: D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6
 ../Variabile_Globale.c:
 
 ../Variabile_Globale.h:
+
+D:/ccs/ccsInstalled/ccs/ccs_base/msp430/include/msp430.h:
+
+D:/ccs/ccsInstalled/ccs/ccs_base/msp430/include/msp430fr2355.h:
+
+D:/ccs/ccsInstalled/ccs/ccs_base/msp430/include/in430.h:
+
+D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/intrinsics.h:
+
+D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/intrinsics_legacy_undefs.h:
+
+D:/ccs/ccsInstalled/ccs/ccs_base/msp430/include/legacy.h:
 
 D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/stdint.h:
 
