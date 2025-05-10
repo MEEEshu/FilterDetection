@@ -11,6 +11,9 @@ GEN_CMDS__FLAG :=
 
 ORDERED_OBJS += \
 "./FisierMain.obj" \
+"./Project_Generic_functions.obj" \
+"./Variabile_Globale.obj" \
+"./dsp_filters.obj" \
 "../lnk_msp430fr2355.cmd" \
 $(GEN_CMDS__FLAG) \
 -lfrwp_init.a \
@@ -142,8 +145,8 @@ DetectorDeFiltre.out: $(OBJS) $(CMD_SRCS) $(GEN_CMDS)
 # Other Targets
 clean:
 	-$(RM) $(EXE_OUTPUTS__QUOTED)
-	-$(RM) "FisierMain.obj" 
-	-$(RM) "FisierMain.d" 
+	-$(RM) "FisierMain.obj" "Project_Generic_functions.obj" "Variabile_Globale.obj" "dsp_filters.obj" 
+	-$(RM) "FisierMain.d" "Project_Generic_functions.d" "Variabile_Globale.d" "dsp_filters.d" 
 	-@echo 'Finished clean'
 	-@echo ' '
 

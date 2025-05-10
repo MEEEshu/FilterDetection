@@ -21,6 +21,15 @@ FisierMain.obj: D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/
 FisierMain.obj: D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/_defs.h
 FisierMain.obj: D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/machine/_limits.h
 FisierMain.obj: D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/stddef.h
+FisierMain.obj: ../dsp_filters.h
+FisierMain.obj: ../Project_Generic_functions.h
+FisierMain.obj: ../Variabile_Globale.h
+FisierMain.obj: D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/stdbool.h
+FisierMain.obj: D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/stdio.h
+FisierMain.obj: D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/stdarg.h
+FisierMain.obj: D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/stdlib.h
+FisierMain.obj: D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/string.h
+FisierMain.obj: D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/xlocale/_string.h
 
 ../FisierMain.c:
 
@@ -63,4 +72,22 @@ D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/_defs.h:
 D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/machine/_limits.h:
 
 D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/stddef.h:
+
+../dsp_filters.h:
+
+../Project_Generic_functions.h:
+
+../Variabile_Globale.h:
+
+D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/stdbool.h:
+
+D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/stdio.h:
+
+D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/stdarg.h:
+
+D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/stdlib.h:
+
+D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/string.h:
+
+D:/ccs/ccsInstalled/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include/xlocale/_string.h:
 

@@ -1,4 +1,7 @@
 "./FisierMain.obj"
+"./Project_Generic_functions.obj"
+"./Variabile_Globale.obj"
+"./dsp_filters.obj"
 "../lnk_msp430fr2355.cmd"
 -lfrwp_init.a
 -llibc.a
